@@ -1,7 +1,7 @@
 import os
 from data.base_dataset import BaseDataset, get_params, get_transform
-from data.image_folder import make_dataset
 from PIL import Image
+import torchvision.transforms as transforms
 
 
 class AlignedDataset(BaseDataset):
@@ -11,50 +11,72 @@ class AlignedDataset(BaseDataset):
     During test time, you need to prepare a directory '/path/to/data/test'.
     """
 
-    def __init__(self, opt):
+    def __init__(self, opt, mode='train'):
         """Initialize this dataset class.
 
         Parameters:
             opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
         BaseDataset.__init__(self, opt)
-        self.dir_AB = os.path.join(opt.dataroot, opt.phase)  # get the image directory
-        self.AB_paths = sorted(make_dataset(self.dir_AB, opt.max_dataset_size))  # get image paths
-        assert(self.opt.load_size >= self.opt.crop_size)   # crop_size should be smaller than the size of loaded image
-        self.input_nc = self.opt.output_nc if self.opt.direction == 'BtoA' else self.opt.input_nc
-        self.output_nc = self.opt.input_nc if self.opt.direction == 'BtoA' else self.opt.output_nc
+
+        img_root = '/public/home/v-wangqw/program/CVUSA/'
+        if mode == 'train':
+            file_list = os.path.join(img_root, 'splits/train-19zl.csv')
+        elif mode == 'test':
+            file_list = os.path.join(img_root, 'splits/val-19zl.csv')
+
+        data_list = []
+        with open(file_list, 'r') as f:
+            for line in f:
+                data = line.split(',')
+                # data_list.append([img_root + data[0], img_root + data[1], img_root + data[2][:-1]])
+                data_list.append([img_root + data[0], img_root + data[1], img_root +
+                                data[0].replace('bing', 'polar').replace('jpg', 'png')])
+
+        self.aer_list = [item[0] for item in data_list]
+        self.pano_list = [item[1] for item in data_list]
+        self.polar_list = [item[2] for item in data_list]
+        
+        self.preprocess_aerialviwe = transforms.Compose([
+            # 此步骤后，像素值会在[0, 1]范围内
+            transforms.ToTensor(),
+            # Normalize步骤会将[0, 1]范围的值转换为[-1, 1]
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+            # 在这里添加其他必要的转换，例如缩放图像等
+            transforms.Resize(
+                (256, 256), interpolation=transforms.InterpolationMode.NEAREST),
+        ])
+        self.preprocess_streetviwe = transforms.Compose([
+            # 此步骤后，像素值会在[0, 1]范围内
+            transforms.ToTensor(),
+            # Normalize步骤会将[0, 1]范围的值转换为[-1, 1]
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+            # 在这里添加其他必要的转换，例如缩放图像等
+            transforms.Resize(
+                (128, 512), interpolation=transforms.InterpolationMode.NEAREST),
+        ])
+        self.preprocess_polar = transforms.Compose([
+            # 此步骤后，像素值会在[0, 1]范围内
+            transforms.ToTensor(),
+            # Normalize步骤会将[0, 1]范围的值转换为[-1, 1]
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+            # 在这里添加其他必要的转换，例如缩放图像等
+            transforms.Resize(
+                (128, 512), interpolation=transforms.InterpolationMode.NEAREST),
+        ])
 
     def __getitem__(self, index):
-        """Return a data point and its metadata information.
+        aer_image = Image.open(self.aer_list[index]).convert('RGB')
+        pano_image = Image.open(self.pano_list[index]).convert('RGB')
+        polar_image = Image.open(self.polar_list[index]).convert('RGB')
+        # 应用预处理
+        aer_image = self.preprocess_aerialviwe(aer_image)
+        pano_image = self.preprocess_streetviwe(pano_image)
+        polar_image = self.preprocess_streetviwe(polar_image)
+        ground_path = self.pano_list[index]
 
-        Parameters:
-            index - - a random integer for data indexing
-
-        Returns a dictionary that contains A, B, A_paths and B_paths
-            A (tensor) - - an image in the input domain
-            B (tensor) - - its corresponding image in the target domain
-            A_paths (str) - - image paths
-            B_paths (str) - - image paths (same as A_paths)
-        """
-        # read a image given a random integer index
-        AB_path = self.AB_paths[index]
-        AB = Image.open(AB_path).convert('RGB').crop((0, 0, 2048, 256))
-        # split AB image into A and B
-        w, h = AB.size
-        w2 = int(w / 2)
-        A = AB.crop((0, 0, w2, h))
-        B = AB.crop((w2, 0, w, h))
-
-        # apply the same transform to both A and B
-        transform_params = get_params(self.opt, A.size)
-        A_transform = get_transform(self.opt, transform_params, grayscale=(self.input_nc == 1))
-        B_transform = get_transform(self.opt, transform_params, grayscale=(self.output_nc == 1))
-
-        A = A_transform(A)
-        B = B_transform(B)
-
-        return {'A': A, 'B': B, 'A_paths': AB_path, 'B_paths': AB_path}
+        return {'ground_path': ground_path, "aer_image": aer_image, "pano_image": pano_image, "polar_image": polar_image}
 
     def __len__(self):
         """Return the total number of images in the dataset."""
-        return len(self.AB_paths)
+        return len(self.aer_list)

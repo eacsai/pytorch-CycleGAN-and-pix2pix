@@ -64,7 +64,6 @@ def get_scheduler(optimizer, opt):
         return NotImplementedError('learning rate policy [%s] is not implemented', opt.lr_policy)
     return scheduler
 
-
 def init_weights(net, init_type='normal', init_gain=0.02):
     """Initialize network weights.
 
@@ -78,7 +77,11 @@ def init_weights(net, init_type='normal', init_gain=0.02):
     """
     def init_func(m):  # define the initialization function
         classname = m.__class__.__name__
-        if hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
+        if classname.find('ConvTranspose2d') != -1 and m.bias is not None:
+            init.normal_(m.weight.data, 0.0, 0)
+            init.constant_(m.bias.data, 0.0)
+            m.bias.data[-1] = 1.0
+        elif hasattr(m, 'weight') and (classname.find('Conv') != -1 or classname.find('Linear') != -1):
             if init_type == 'normal':
                 init.normal_(m.weight.data, 0.0, init_gain)
             elif init_type == 'xavier':
@@ -115,7 +118,6 @@ def init_net(net, init_type='normal', init_gain=0.02, gpu_ids=[]):
         net = torch.nn.DataParallel(net, gpu_ids)  # multi-GPUs
     init_weights(net, init_type, init_gain=init_gain)
     return net
-
 
 def define_G(input_nc, output_nc, ngf, netG, norm='batch', use_dropout=False, init_type='normal', init_gain=0.02, gpu_ids=[]):
     """Create a generator
@@ -203,6 +205,10 @@ def define_D(input_nc, ndf, netD, n_layers_D=3, norm='batch', init_type='normal'
         raise NotImplementedError('Discriminator model name [%s] is not recognized' % netD)
     return init_net(net, init_type, init_gain, gpu_ids)
 
+def encoder_decoder(in_channels, generator_outputs_channels, gpu_ids, ngf=4, init_type='normal', init_gain=0.02):
+    net = Encoder_Decoder(in_channels, generator_outputs_channels, ngf)
+    # return net.to(gpu_ids[0])
+    return init_net(net, init_type, init_gain, gpu_ids)
 
 ##############################################################################
 # Classes
@@ -460,7 +466,7 @@ class UnetGenerator(nn.Module):
         unet_block = UnetSkipConnectionBlock(ngf * 2, ngf * 4, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         unet_block = UnetSkipConnectionBlock(ngf, ngf * 2, input_nc=None, submodule=unet_block, norm_layer=norm_layer)
         self.model = UnetSkipConnectionBlock(output_nc, ngf, input_nc=input_nc, submodule=unet_block, outermost=True, norm_layer=norm_layer)  # add the outermost layer
-
+    
     def forward(self, input):
         """Standard forward"""
         return self.model(input)
@@ -488,10 +494,7 @@ class UnetSkipConnectionBlock(nn.Module):
         """
         super(UnetSkipConnectionBlock, self).__init__()
         self.outermost = outermost
-        if type(norm_layer) == functools.partial:
-            use_bias = norm_layer.func == nn.InstanceNorm2d
-        else:
-            use_bias = norm_layer == nn.InstanceNorm2d
+        use_bias = False
         if input_nc is None:
             input_nc = outer_nc
         downconv = nn.Conv2d(input_nc, inner_nc, kernel_size=4,
@@ -504,7 +507,7 @@ class UnetSkipConnectionBlock(nn.Module):
         if outermost:
             upconv = nn.ConvTranspose2d(inner_nc * 2, outer_nc,
                                         kernel_size=4, stride=2,
-                                        padding=1)
+                                        padding=1, bias=use_bias)
             down = [downconv]
             up = [uprelu, upconv, nn.Tanh()]
             model = down + [submodule] + up
@@ -614,3 +617,105 @@ class PixelDiscriminator(nn.Module):
     def forward(self, input):
         """Standard forward."""
         return self.net(input)
+
+
+class Encoder_Decoder(nn.Module):
+    def __init__(self, input_channels, generator_outputs_channels = 64, ngf=4, skip=True):
+        super(Encoder_Decoder, self).__init__()
+        self.skip = skip
+        self.generator_outputs_channels = generator_outputs_channels
+        # Encoder layers
+        # Using list comprehension to create subsequent encoder layers
+        layer_specs = [
+            # encoder_2: [batch, 256, 256, ngf] => [batch, 128, 128, ngf * 2]
+            ngf * 2,
+            # encoder_3: [batch, 128, 128, ngf * 2] => [batch, 64, 64, ngf * 4]
+            ngf * 4,
+            # encoder_4: [batch, 64, 64, ngf * 4] => [batch, 32, 32, ngf * 8]
+            ngf * 8,
+            # encoder_5: [batch, 32, 32, ngf * 8] => [batch, 16, 16, ngf * 8]
+            ngf * 8,
+            # encoder_6: [batch, 16, 16, ngf * 8] => [batch, 8, 8, ngf * 8]
+            ngf * 8,
+            # encoder_7: [batch, 8, 8, ngf * 8] => [batch, 4, 4, ngf * 8]
+            ngf * 8,
+            # ngf * 8, # encoder_8: [batch, 4, 4, ngf * 8] => [batch, 2, 2, ngf * 8]
+        ]
+
+        layers = [nn.Conv2d(input_channels, ngf,
+                                           kernel_size=4, stride=2, padding=1)]
+        in_channels = ngf
+        for out_channels in layer_specs:
+            layers.append(nn.Sequential(*[
+                nn.LeakyReLU(0.2, inplace=True),
+                nn.Conv2d(in_channels, out_channels, kernel_size=4, stride=2, padding=1),
+                nn.BatchNorm2d(out_channels)
+            ]))
+            in_channels = out_channels
+
+        self.encoder_layers = nn.ModuleList([
+            *layers
+        ])
+
+        # Decoder layers
+        layers = []
+        layer_specs = [
+            # (ngf * 8, 0.5),   # decoder_8: [batch, 1, 4, ngf * 8] => [batch, 2, 8, ngf * 8 * 2]
+            # decoder_7: [batch, 2, 8, ngf * 8 * 2] => [batch, 4, 16, ngf * 8 * 2]
+            (ngf * 8, 0.0),
+            # decoder_6: [batch, 4, 16, ngf * 8 * 2] => [batch, 8, 32, ngf * 8 * 2]
+            (ngf * 8, 0.0),
+            # decoder_5: [batch, 8, 32, ngf * 8 * 2] => [batch, 16, 64, ngf * 8 * 2]
+            (ngf * 8, 0.0),
+            # decoder_4: [batch, 16, 64, ngf * 8 * 2] => [batch, 32, 128, ngf * 4 * 2]
+            (ngf * 4, 0.0),
+            # decoder_3: [batch, 32, 128, ngf * 4 * 2] => [batch, 64, 256, ngf * 2 * 2]
+            (ngf * 2, 0.0),
+            # decoder_2: [batch, 64, 256, ngf * 2 * 2] => [batch, 128, 512, ngf * 2 * 2]
+            (ngf, 0.0),
+        ]
+
+        for index, (out_channels, dropout) in enumerate(layer_specs):
+            layers.append(nn.Sequential(*[
+                nn.ReLU(inplace=True),
+                nn.ConvTranspose2d(in_channels, out_channels, kernel_size=4, stride=2, padding=1, output_padding=0, bias=False),
+                nn.BatchNorm2d(out_channels)
+            ]))
+            in_channels = out_channels * 2
+
+        self.decoder_layers = nn.ModuleList([
+            *layers
+        ])
+        
+        layers = []
+
+        self.upsample_layers = nn.Sequential(*[
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(int(in_channels / 2), generator_outputs_channels, kernel_size=4, stride=2, padding=1, output_padding=0, bias=True),
+            nn.Softmax(dim=1)
+        ])
+
+        # self.test = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1)
+    
+    def forward(self, x):
+        # Encoder
+        layers = []
+        for encoder_layer in self.encoder_layers:
+            x = encoder_layer(x)
+            layers.append(x)
+
+        layers.append(x.view(-1, x.shape[1], 1, 4))
+        num_encoder_layers = len(layers)
+
+        # Decoder
+        for i, decoder_layer in enumerate(self.decoder_layers):
+            skip_layer = num_encoder_layers - i - 2
+            if self.skip and i > 0:
+                x = torch.cat([x, layers[skip_layer]], dim=1)
+            x = decoder_layer(x)
+            layers.append(x)
+        
+        # unsample
+        x = self.upsample_layers(x)
+        return x
+        # return self.test(x)

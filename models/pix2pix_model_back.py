@@ -46,6 +46,7 @@ class Pix2PixModel(BaseModel):
         parser.set_defaults(norm='batch', netG='unet_256', dataset_mode='aligned')
         if is_train:
             parser.set_defaults(pool_size=0, gan_mode='vanilla')
+            parser.add_argument('--lambda_L1', type=float, default=100.0, help='weight for L1 loss')
 
         return parser
 
@@ -57,25 +58,19 @@ class Pix2PixModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        if self.opt.loss_type == 'perceptual':
-            self.loss_names = ['G_GAN', 'G_P', 'D_real', 'D_fake']
-        else:
-            self.loss_names = ['G_GAN', 'G_L1', 'D_real', 'D_fake']
+        self.loss_names = ['G_GAN', 'G_L1', 'D_real', 'D_fake']
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         self.visual_names = ['real_A', 'fake_B', 'real_B']
         # specify the models you want to save to the disk. The training/test scripts will call <BaseModel.save_networks> and <BaseModel.load_networks>
         if self.isTrain:
-            if self.opt.input_type == 'height':
-                self.model_names = ['G', 'D', 'ED']
-            else:
-                self.model_names = ['G', 'D']
+            self.model_names = ['G', 'D', 'ED']
         else:  # during test time, only load G
             self.model_names = ['G']
         # define networks (both generator and discriminator)
         self.netG = networks.define_G(opt.input_nc, opt.output_nc, opt.ngf, opt.netG, opt.norm,
                                       not opt.no_dropout, opt.init_type, opt.init_gain, self.gpu_ids)
-        if self.opt.input_type == 'height':
-            self.netED = networks.encoder_decoder(3, generator_outputs_channels=64, gpu_ids=self.gpu_ids)        
+        self.netED = networks.encoder_decoder(3, generator_outputs_channels=64, gpu_ids=self.gpu_ids)
+        
         if self.isTrain:  # define a discriminator; conditional GANs need to take both input and output images; Therefore, #channels for D is input_nc + output_nc
             self.netD = networks.define_D(opt.input_nc + opt.output_nc, opt.ndf, opt.netD,
                                           opt.n_layers_D, opt.norm, opt.init_type, opt.init_gain, self.gpu_ids)
@@ -85,10 +80,8 @@ class Pix2PixModel(BaseModel):
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)
             self.criterionL1 = torch.nn.L1Loss()
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
-            if self.opt.input_type == 'height':
-                self.optimizer_G = torch.optim.Adam(itertools.chain(self.netED.parameters(),self.netG.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
-            else:
-                self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+            # self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+            self.optimizer_G = torch.optim.Adam(itertools.chain(self.edNet.parameters(),self.netG.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
@@ -102,25 +95,22 @@ class Pix2PixModel(BaseModel):
 
         The option 'direction' can be used to swap images in domain A and domain B.
         """
-        if self.opt.input_type == 'height':
-            inputs = inputs.to(self.device)
-            self.estimated_height = self.netED(inputs)
-            self.real_A = geometry_transform(inputs, self.device, self.estimated_height, target_height, target_width, grd_height, max_height)
-        else:
-            self.real_A = polar.to(self.device)
-
+        inputs = inputs.to(self.device)
+        self.estimated_height = self.netED(inputs)
+        
+        self.real_A = geometry_transform(inputs, self.device, self.estimated_height, target_height, target_width, grd_height, max_height)
         self.real_B = targets.to(self.device)
+        self.polar = polar.to(self.device)
 
     #@profile
     def forward(self):
         """Run forward pass; called by both functions <optimize_parameters> and <test>."""
         self.fake_B = self.netG(self.real_A)  # G(A)
         
-        if self.opt.input_type == 'height':
-            argmax_height = torch.argmax(self.estimated_height, dim=1, keepdim=True)
-            hight_img = to_pil((argmax_height[0,:,:,:] + 1) / 2)
-            hight_img.save(self.opt.name+'_estimated_height.png')
-            
+        argmax_height = torch.argmax(self.estimated_height, dim=1, keepdim=True)
+        hight_img = to_pil((argmax_height[0,:,:,:] + 1) / 2)
+        hight_img.save(self.opt.name+'_estimated_height.png')
+        
         generator_img = to_pil((self.real_A[0,:,:,:] + 1) / 2)
         generator_img.save(self.opt.name+'_generator_img.png')
         
@@ -152,13 +142,11 @@ class Pix2PixModel(BaseModel):
         pred_fake = self.netD(fake_AB)
         self.loss_G_GAN = self.criterionGAN(pred_fake, True)
         # Second, G(A) = B
-        if self.opt.loss_type == 'perceptual':
-            self.loss_G_P = perceptual_loss(self.fake_B, self.real_B) * self.opt.lambda_L1
-            self.loss_G = self.loss_G_GAN + self.loss_G_P
-        else:
+        self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B) * self.opt.lambda_L1
+        self.loss_G_P = perceptual_loss(self.fake_B, self.real_B)
         # combine loss and calculate gradients
-            self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B) * self.opt.lambda_L1
-            self.loss_G = self.loss_G_GAN + self.loss_G_L1
+        # self.loss_G = self.loss_G_GAN + self.loss_G_L1
+        self.loss_G = self.loss_G_GAN + self.loss_G_P
 
         self.loss_G.backward()
 

@@ -23,6 +23,7 @@ from options.train_options import TrainOptions
 from data import create_dataset
 from models import create_model
 from util.visualizer import Visualizer
+import sys
 
 if __name__ == '__main__':
     opt = TrainOptions().parse()   # get training options
@@ -48,7 +49,10 @@ if __name__ == '__main__':
 
             total_iters += opt.batch_size
             epoch_iter += opt.batch_size
-            model.set_input(data)         # unpack data from dataset and apply preprocessing
+            inputs = data.get('aer_image')
+            targets = data.get('pano_image')
+            polar = data.get('polar_image')
+            model.set_input(inputs, targets, polar)         # unpack data from dataset and apply preprocessing
             model.optimize_parameters()   # calculate loss functions, get gradients, update network weights
 
             if total_iters % opt.display_freq == 0:   # display images on visdom and save images to a HTML file
@@ -69,6 +73,8 @@ if __name__ == '__main__':
                 model.save_networks(save_suffix)
 
             iter_data_time = time.time()
+
+            # sys.exit()
         if epoch % opt.save_epoch_freq == 0:              # cache our model every <save_epoch_freq> epochs
             print('saving the model at the end of epoch %d, iters %d' % (epoch, total_iters))
             model.save_networks('latest')
