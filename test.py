@@ -104,7 +104,7 @@ if __name__ == '__main__':
 
         for index, data in enumerate(dataset):
         
-            if index >= 50:  # only apply our model to opt.num_test images.
+            if index >= 500:  # only apply our model to opt.num_test images.
                 break
             
             inputs = data.get('aer_image')

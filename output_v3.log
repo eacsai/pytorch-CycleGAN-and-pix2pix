@@ -1,0 +1,230 @@
+----------------- Options ---------------
+               batch_size: 1                             
+                    beta1: 0.5                           
+          checkpoints_dir: ./checkpoints                 
+           continue_train: False                         
+                crop_size: 256                           
+                 dataroot: /public/home/v-wangqw/program/CVUSA/
+             dataset_mode: aligned                       
+                direction: AtoB                          
+              display_env: main                          
+             display_freq: 400                           
+               display_id: 1                             
+            display_ncols: 4                             
+             display_port: 8115                          	[default: 8097]
+           display_server: http://localhost              
+          display_winsize: 256                           
+                    epoch: latest                        
+              epoch_count: 1                             
+                 gan_mode: vanilla                       
+                  gpu_ids: 1                             	[default: 0]
+                init_gain: 0.02                          
+                init_type: normal                        
+                 input_nc: 3                             
+               input_type: height                        
+                  isTrain: True                          	[default: None]
+                lambda_L1: 1.0                           	[default: 100.0]
+                load_iter: 0                             	[default: 0]
+                load_size: 286                           
+                loss_type: perceptual                    
+                       lr: 0.0002                        
+           lr_decay_iters: 50                            
+                lr_policy: linear                        
+         max_dataset_size: inf                           
+                    model: pix2pix                       	[default: cycle_gan]
+                 n_epochs: 100                           
+           n_epochs_decay: 100                           
+               n_layers_D: 3                             
+                     name: profile                       	[default: experiment_name]
+                      ndf: 64                            
+                     netD: basic                         
+                     netG: unet_128                      	[default: unet_256]
+                      ngf: 64                            
+               no_dropout: False                         
+                  no_flip: False                         
+                  no_html: False                         
+                     norm: batch                         
+              num_threads: 4                             
+                output_nc: 3                             
+                    phase: train                         
+                pool_size: 0                             
+               preprocess: resize_and_crop               
+               print_freq: 100                           
+             save_by_iter: False                         
+          save_epoch_freq: 5                             
+         save_latest_freq: 5000                          
+           serial_batches: False                         
+                   suffix:                               
+         update_html_freq: 1000                          
+                use_wandb: False                         
+                  verbose: False                         
+       wandb_project_name: CycleGAN-and-pix2pix          
+----------------- End -------------------
+dataset [AlignedDataset] was created
+The number of training images = 35532
+initialize network with normal
+initialize network with normal
+initialize network with normal
+model [Pix2PixModel] was created
+---------- Networks initialized -------------
+[Network G] Total number of parameters : 41.829 M
+[Network D] Total number of parameters : 2.769 M
+[Network ED] Total number of parameters : 0.168 M
+-----------------------------------------------
+create web directory ./checkpoints/profile/web...
+learning rate 0.0002000 -> 0.0002000
+Wrote profile results to train.py.lprof
+Timer unit: 1e-06 s
+
+Total time: 0.0596365 s
+File: /public/home/v-wangqw/program/pytorch-CycleGAN-and-pix2pix/models/perceptualLoss.py
+Function: load_weights at line 18
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    18                                               @profile    
+    19                                               def load_weights(self):
+    20                                                   # 将权重从.mat转移到 PyTorch 模型
+    21        32         54.9      1.7      0.1          for i, layer in enumerate(self.features):
+    22        31         20.7      0.7      0.0              if isinstance(layer, nn.Conv2d):
+    23        14      51728.7   3694.9     86.7                  weight = torch.tensor(self.layers[i][0][0][2][0][0], dtype=torch.float32).permute(3,2,0,1)
+    24        14        487.8     34.8      0.8                  bias = torch.tensor(self.layers[i][0][0][2][0][1].reshape(-1), dtype=torch.float32)
+    25                                                           
+    26                                                           # Validate dimensions
+    27        14        100.6      7.2      0.2                  assert layer.weight.shape == weight.shape, "Weight shape mismatch"
+    28        14         41.2      2.9      0.1                  assert layer.bias.shape == bias.shape, "Bias shape mismatch"
+    29                                                           
+    30        14       6928.7    494.9     11.6                  layer.weight = nn.Parameter(weight)
+    31        14        273.9     19.6      0.5                  layer.bias = nn.Parameter(bias)
+
+Total time: 0.257312 s
+File: /public/home/v-wangqw/program/pytorch-CycleGAN-and-pix2pix/models/perceptualLoss.py
+Function: forward at line 32
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    32                                               @profile
+    33                                               def forward(self, x):
+    34         2          2.3      1.1      0.0          results = []
+    35        64         83.4      1.3      0.0          for ii,model in enumerate(self.features):
+    36        62     257170.2   4147.9     99.9              x = model(x)
+    37        62         38.2      0.6      0.0              if ii in {1, 6, 11, 20, 29}:
+    38        10         17.7      1.8      0.0                  results.append(x)
+    39         2          0.5      0.2      0.0          return results
+
+Total time: 0.278054 s
+File: /public/home/v-wangqw/program/pytorch-CycleGAN-and-pix2pix/models/perceptualLoss.py
+Function: perceptual_loss at line 44
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    44                                           @profile
+    45                                           def perceptual_loss(real_img, fake_img):
+    46         1        299.3    299.3      0.1      imagenet_mean = torch.tensor([123.68, 116.779, 103.939]).view(1,3,1,1).to(real_img.device)
+    47                                               # Normalize images
+    48         1        260.8    260.8      0.1      real_img = (real_img + 1.) / 2. * 255. - imagenet_mean
+    49         1         58.2     58.2      0.0      fake_img = (fake_img + 1.) / 2. * 255. - imagenet_mean
+    50                                               # Get features
+    51         1     249147.0 249147.0     89.6      real_features = [real_img, *vgg19.to(real_img.device)(real_img)]
+    52         1      19609.6  19609.6      7.1      fake_features = [fake_img, *vgg19.to(real_img.device)(fake_img)]
+    53                                               # Calculate losses
+    54         1          0.6      0.6      0.0      layers_weights = [1.0, 2.6, 4.8, 3.7, 5.6, 1.5]
+    55         1          0.2      0.2      0.0      total_loss = 0
+    56         7          7.0      1.0      0.0      for i, weight in enumerate(layers_weights):
+    57         6       8670.6   1445.1      3.1          total_loss += compute_error(real_features[i], fake_features[i]) / weight
+    58                                               
+    59         1          0.2      0.2      0.0      return total_loss
+
+Total time: 0.415017 s
+File: /public/home/v-wangqw/program/pytorch-CycleGAN-and-pix2pix/models/pix2pix_model.py
+Function: set_input at line 96
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    96                                               @profile
+    97                                               def set_input(self, inputs, targets, polar):
+    98                                                   """Unpack input data from the dataloader and perform necessary pre-processing steps.
+    99                                           
+   100                                                   Parameters:
+   101                                                       input (dict): include the data itself and its metadata information.
+   102                                           
+   103                                                   The option 'direction' can be used to swap images in domain A and domain B.
+   104                                                   """
+   105         1          9.2      9.2      0.0          if self.opt.input_type == 'height':
+   106         1        717.9    717.9      0.2              inputs = inputs.to(self.device)
+   107         1     350680.1 350680.1     84.5              self.estimated_height = self.netED(inputs)
+   108         1      63133.1  63133.1     15.2              self.real_A = geometry_transform(inputs, self.device, self.estimated_height, target_height, target_width, grd_height, max_height)
+   109                                                   else:
+   110                                                       self.real_A = polar.to(self.device)
+   111                                           
+   112         1        477.0    477.0      0.1          self.real_B = targets.to(self.device)
+
+Total time: 1.70304 s
+File: /public/home/v-wangqw/program/pytorch-CycleGAN-and-pix2pix/models/pix2pix_model.py
+Function: forward at line 114
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   114                                               @profile
+   115                                               def forward(self):
+   116                                                   """Run forward pass; called by both functions <optimize_parameters> and <test>."""
+   117         1    1624581.7    2e+06     95.4          self.fake_B = self.netG(self.real_A)  # G(A)
+   118                                                   
+   119         1         21.0     21.0      0.0          if self.opt.input_type == 'height':
+   120         1       3395.3   3395.3      0.2              argmax_height = torch.argmax(self.estimated_height, dim=1, keepdim=True)
+   121         1       1316.6   1316.6      0.1              hight_img = to_pil((argmax_height[0,:,:,:] + 1) / 2)
+   122         1      15017.0  15017.0      0.9              hight_img.save(self.opt.name+'_estimated_height.png')
+   123                                                       
+   124         1       1911.0   1911.0      0.1          generator_img = to_pil((self.real_A[0,:,:,:] + 1) / 2)
+   125         1      19960.9  19960.9      1.2          generator_img.save(self.opt.name+'_generator_img.png')
+   126                                                   
+   127         1       1825.4   1825.4      0.1          x_img = to_pil((self.fake_B[0,:,:,:] + 1) / 2)
+   128         1      14429.7  14429.7      0.8          x_img.save(self.opt.name+'_x_img.png')
+   129                                                   
+   130         1       1723.4   1723.4      0.1          y_img = to_pil((self.real_B[0,:,:,:] + 1) / 2)
+   131         1      18857.3  18857.3      1.1          y_img.save(self.opt.name+'_y_img.png')
+
+Total time: 2.335 s
+File: /public/home/v-wangqw/program/pytorch-CycleGAN-and-pix2pix/models/pix2pix_model.py
+Function: backward_G at line 147
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   147                                               @profile
+   148                                               def backward_G(self):
+   149                                                   """Calculate GAN and L1 loss for the generator"""
+   150                                                   # First, G(A) should fake the discriminator
+   151         1         69.9     69.9      0.0          fake_AB = torch.cat((self.real_A, self.fake_B), 1)
+   152         1       1818.7   1818.7      0.1          pred_fake = self.netD(fake_AB)
+   153         1        222.0    222.0      0.0          self.loss_G_GAN = self.criterionGAN(pred_fake, True)
+   154                                                   # Second, G(A) = B
+   155         1          9.3      9.3      0.0          if self.opt.loss_type == 'perceptual':
+   156         1     278167.1 278167.1     11.9              self.loss_G_P = perceptual_loss(self.fake_B, self.real_B) * self.opt.lambda_L1
+   157         1         15.9     15.9      0.0              self.loss_G = self.loss_G_GAN + self.loss_G_P
+   158                                                   else:
+   159                                                   # combine loss and calculate gradients
+   160                                                       self.loss_G_L1 = self.criterionL1(self.fake_B, self.real_B) * self.opt.lambda_L1
+   161                                                       self.loss_G = self.loss_G_GAN + self.loss_G_L1
+   162                                           
+   163         1    2054695.7    2e+06     88.0          self.loss_G.backward()
+
+Total time: 4.62038 s
+File: /public/home/v-wangqw/program/pytorch-CycleGAN-and-pix2pix/models/pix2pix_model.py
+Function: optimize_parameters at line 165
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   165                                               @profile
+   166                                               def optimize_parameters(self):
+   167         1    1703149.4    2e+06     36.9          self.forward()                   # compute fake images: G(A)
+   168                                                   # update D
+   169         1        181.9    181.9      0.0          self.set_requires_grad(self.netD, True)  # enable backprop for D
+   170         1        762.3    762.3      0.0          self.optimizer_D.zero_grad()     # set D's gradients to zero
+   171         1     542554.7 542554.7     11.7          self.backward_D()                # calculate gradients for D
+   172         1      20690.3  20690.3      0.4          self.optimizer_D.step()          # update D's weights
+   173                                                   # update G
+   174         1        148.8    148.8      0.0          self.set_requires_grad(self.netD, False)  # D requires no gradients when optimizing G
+   175         1        327.5    327.5      0.0          self.optimizer_G.zero_grad()        # set G's gradients to zero
+   176         1    2335123.1    2e+06     50.5          self.backward_G()                   # calculate graidents for G
+   177         1      17438.3  17438.3      0.4          self.optimizer_G.step()             # update G's weights
+

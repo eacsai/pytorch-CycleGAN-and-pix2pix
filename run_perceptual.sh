@@ -11,7 +11,7 @@ python "train.py" \
   --display_port 8002 \
   --netG unet_128 \
   --batch_size 12 \
-  --lambda_L1 0.1 \
+  --lambda_L1 1 \
 
 # kernprof -l -v "train.py" \
 #   --name profile \

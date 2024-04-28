@@ -15,7 +15,7 @@
         "--gpu_ids",
         "2",
         "--display_port",
-        "8005",
+        "8015",
         "--netG",
         "unet_128",
         "--lambda_L1",
